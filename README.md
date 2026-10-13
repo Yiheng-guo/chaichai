@@ -1,6 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="拆拆 ChaiChai：让 AI 帮你拆开任何软件，看懂它是怎么运作的" width="100%">
+# 拆拆 ChaiChai
+
+**让 AI 帮你拆开任何软件，看懂它是怎么运作的**
 
 <p>
   <a href="https://github.com/hubooooooo/chaichai/releases"><img src="https://img.shields.io/github/v/release/hubooooooo/chaichai?label=%E7%89%88%E6%9C%AC&color=6366f1" alt="版本"></a>
