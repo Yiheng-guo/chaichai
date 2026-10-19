@@ -15,7 +15,6 @@ import {
   type ArtifactReader,
 } from "../ArtifactReader.js";
 import { streamChunkToBuffer } from "../StreamBytes.js";
-import { hashReadable } from "../ArtifactHash.js";
 import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 import { AnalysisInputError } from "../../domain/analysisErrorCore.js";
@@ -302,6 +301,13 @@ const readText = async (
   context: ReadContext,
   input: ReadTextInput,
 ): Promise<JavaScriptArtifactFile["text"]> => {
+  // Captured filesystem size is an observed fact. Archive declaredSize may
+  // already contradict acquired bytes under record-and-continue policy.
+  if (
+    input.entry.sourceIdentity !== undefined &&
+    input.entry.sourceIdentity.size !== BigInt(input.expected.bytes)
+  )
+    throw changedEntry(input.expected.path);
   if (
     context.selectedPaths !== undefined &&
     !context.selectedPaths.has(input.expected.path)
@@ -323,16 +329,14 @@ const readText = async (
     );
     return { included: false, reason: "not-applicable" };
   }
-  const bytes = await readAll(
+  const chunks: Buffer[] = [];
+  await verifyEntryBytes(
     await input.reader.open(input.entry, context.signal),
+    input.expected,
     context.signal,
+    chunks,
   );
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  if (digest !== input.expected.sha256 || bytes.length !== input.expected.bytes)
-    throw new ArtifactReaderFailure(
-      "integrity",
-      `Artifact entry changed after inventory: ${input.expected.path}`,
-    );
+  const bytes = Buffer.concat(chunks, input.expected.bytes);
   context.textBytes += bytes.length;
   try {
     return {
@@ -356,19 +360,36 @@ const verifyEntryBytes = async (
   stream: Readable,
   expected: Pick<ExpectedFile, "path" | "sha256" | "bytes">,
   signal?: AbortSignal,
+  retainedChunks?: Buffer[],
 ): Promise<void> => {
   try {
-    const digest = await hashReadable(stream, signal);
-    if (digest.sha256 !== expected.sha256 || digest.bytes !== expected.bytes)
-      throw new ArtifactReaderFailure(
-        "integrity",
-        `Artifact entry changed after inventory: ${expected.path}`,
-      );
+    const hash = createHash("sha256");
+    let bytes = 0;
+    for await (const raw of stream) {
+      abortIfNeeded(signal);
+      const chunk = streamChunkToBuffer(raw);
+      // The inventory owns the size bound, even if a later reader reports a
+      // different size or emits more bytes than its metadata promised.
+      if (chunk.length > expected.bytes - bytes)
+        throw changedEntry(expected.path);
+      bytes += chunk.length;
+      hash.update(chunk);
+      retainedChunks?.push(chunk);
+    }
+    abortIfNeeded(signal);
+    if (hash.digest("hex") !== expected.sha256 || bytes !== expected.bytes)
+      throw changedEntry(expected.path);
   } catch (cause: unknown) {
     abortIfNeeded(signal);
     throw cause;
   }
 };
+
+const changedEntry = (path: string): ArtifactReaderFailure =>
+  new ArtifactReaderFailure(
+    "integrity",
+    `Artifact entry changed after inventory: ${path}`,
+  );
 
 const expectedInventory = (
   snapshot: ArtifactInventorySnapshot,
@@ -430,21 +451,6 @@ const expectedInventory = (
     });
   }
   return { files, containers, unavailableFiles };
-};
-
-const readAll = async (
-  stream: Readable,
-  signal?: AbortSignal,
-): Promise<Buffer> => {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const raw of stream) {
-    abortIfNeeded(signal);
-    const chunk = streamChunkToBuffer(raw);
-    bytes += chunk.length;
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks, bytes);
 };
 
 const assertExpectedFilesWereVisited = (

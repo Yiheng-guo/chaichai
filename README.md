@@ -1,3 +1,5 @@
+> 个人维护分支：基于上游提交 `74ec6d01074c7df4a0e635bb59b8fe50e5a27607`，修复源码读取的大小校验及原生关系图的边界问题。[改动与复现](docs/fork-core-fixes.zh-CN.md) · [中文研究工作台](https://github.com/Yiheng-guo/chaichai-studio)。下方为上游项目说明；其中上游安装命令不包含本分支修复，本分支请按改动说明从源码构建。
+
 <div align="center">
 
 # 拆拆 ChaiChai

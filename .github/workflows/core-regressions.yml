@@ -1,0 +1,34 @@
+name: Core regression checks
+on:
+  push:
+    branches: [codex/core-integrity-fixes]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.20.0"
+          cache: npm
+      - run: npm ci
+        env:
+          HUSKY: "0"
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run verify:test-discovery
+      - run: >-
+          npm run test:focused --
+          src/domain/native/nativeInvestigationGraph.test.ts
+          src/application/native/EnhancedNativeInvestigation.test.ts
+          tests/boundary/filesystem/javascriptArtifactContentIdentity.test.ts
+          tests/boundary/filesystem/javascriptIntegrityPolicy.test.ts
+          tests/boundary/filesystem/javascriptArtifactReconstruction.test.ts
+          tests/boundary/filesystem/javascriptArtifactBomRanges.test.ts
+          tests/boundary/cli/javascriptIntegrityPolicyCli.test.ts
+          tests/acceptance/applications/javascriptSourceSelectionCli.test.ts
+          tests/boundary/mcp/retainedApplicationEvidenceMcp.test.ts

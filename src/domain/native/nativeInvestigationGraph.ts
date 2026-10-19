@@ -175,7 +175,7 @@ export const traceNativeInvestigationGraph = (
       edges: [],
       unresolved: [],
       reached_depth: 0,
-      truncated: false,
+      truncated: graph.truncated,
       reason: "start_node_missing",
       coverage: graph.coverage,
       limitations: [
@@ -227,13 +227,16 @@ export const traceNativeInvestigationGraph = (
         reason ??= "max_depth_reached";
         continue;
       }
-      selectedEdges.set(edge.id, edge);
-      if (alreadyVisited) continue;
+      if (alreadyVisited) {
+        selectedEdges.set(edge.id, edge);
+        continue;
+      }
       if (visited.size >= limits.max_nodes) {
         truncated = true;
         reason = "max_nodes_reached";
         break;
       }
+      selectedEdges.set(edge.id, edge);
       if (!nodeById.has(nextId)) {
         truncated = true;
         reason ??= "edge_target_missing_from_graph";
@@ -257,10 +260,15 @@ export const traceNativeInvestigationGraph = (
     edges: [...selectedEdges.values()],
     unresolved: [...unresolved.values()],
     reached_depth: reachedDepth,
-    truncated,
-    reason,
+    truncated: truncated || graph.truncated,
+    reason: reason ?? (graph.truncated ? "source_graph_truncated" : null),
     coverage: graph.coverage,
     limitations: [
+      ...(graph.truncated
+        ? [
+            "The supplied graph was truncated; tracing cannot recover relationships omitted by its producer.",
+          ]
+        : []),
       "Static analysis does not prove that an authored UI action is reachable or executed at runtime.",
       "Provider call graphs may omit unresolved indirect dispatch.",
     ],

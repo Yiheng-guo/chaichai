@@ -83,6 +83,48 @@ const graph = nativeInvestigationGraphSchema.parse({
 });
 
 describe("native investigation graph traces", () => {
+  it("does not retain an edge to a node omitted by the caller's node limit", () => {
+    const trace = traceNativeInvestigationGraph(graph, {
+      start: "a",
+      limits: { max_nodes: 1 },
+    });
+    expect(trace.nodes.map(({ id }) => id)).toEqual(["a"]);
+    expect(trace.edges).toEqual([]);
+    expect(trace).toMatchObject({
+      truncated: true,
+      reason: "max_nodes_reached",
+    });
+  });
+
+  it("preserves source graph truncation even when the selected route fits its limits", () => {
+    const trace = traceNativeInvestigationGraph(
+      { ...graph, truncated: true },
+      { start: "a" },
+    );
+    expect(trace).toMatchObject({
+      truncated: true,
+      reason: "source_graph_truncated",
+    });
+    expect(trace.unresolved).toHaveLength(1);
+  });
+
+  it("applies node bounds to backward traces without losing the stopping reason", () => {
+    const trace = traceNativeInvestigationGraph(
+      { ...graph, truncated: true },
+      {
+        start: "c",
+        direction: "backward",
+        limits: { max_nodes: 1 },
+      },
+    );
+    expect(trace.nodes.map(({ id }) => id)).toEqual(["c"]);
+    expect(trace.edges).toEqual([]);
+    expect(trace).toMatchObject({
+      truncated: true,
+      reason: "max_nodes_reached",
+    });
+  });
+
   it("retains observed and inferred route edges plus unresolved dispatch", () => {
     const trace = traceNativeInvestigationGraph(graph, { start: "a" });
     expect(trace.nodes.map(({ id }) => id)).toEqual(["a", "b", "c"]);

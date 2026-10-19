@@ -1,8 +1,9 @@
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 
 import { createPackage } from "@electron/asar";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { scanArtifactInventory } from "../../fixtures/artifactInventory.js";
 import { readJavaScriptArtifactFiles } from "../../support/javascriptApplicationScope.js";
@@ -21,6 +22,63 @@ const fixture = async () => {
   await createPackage(source, archive);
   return { source, bundle, archive };
 };
+
+describe("JavaScript artifact ingestion byte bounds", () => {
+  it.each([
+    { name: "main.js", selection: undefined },
+    { name: "main.js", selection: [] },
+    { name: "addon.node", selection: undefined },
+  ])(
+    "stops an oversized $name stream before draining it (selection: $selection)",
+    async ({ name, selection }) => {
+      const root = await createTestTempDirectory("rea-ingestion-stream-bound-");
+      const original = Buffer.from("export const value = 1;\n");
+      await writeFile(join(root, name), original);
+      const snapshot = await scanArtifactInventory(root);
+      const reader = new DirectoryArtifactReader(root);
+      let emitted = 0;
+      const source = Readable.from(
+        (async function* () {
+          yield original;
+          for (let index = 0; index < 64; index += 1) {
+            emitted += 1;
+            yield Buffer.from("x");
+          }
+        })(),
+        { objectMode: false, highWaterMark: 1 },
+      );
+      vi.spyOn(reader, "open").mockResolvedValue(source);
+      try {
+        await expect(
+          readJavaScriptArtifactFiles(reader, snapshot, undefined, selection),
+        ).rejects.toMatchObject({ reason: "integrity" });
+        expect(emitted).toBeLessThan(64);
+        expect(source.destroyed).toBe(true);
+      } finally {
+        source.destroy();
+        await reader.close();
+      }
+    },
+  );
+
+  it("rejects changed source size before opening or buffering replacement bytes", async () => {
+    const root = await createTestTempDirectory("rea-ingestion-grown-source-");
+    const source = join(root, "main.js");
+    await writeFile(source, "export const value = 1;\n");
+    const snapshot = await scanArtifactInventory(root);
+    await writeFile(source, "x".repeat(1024 * 1024));
+    const reader = new DirectoryArtifactReader(root);
+    const opened = vi.spyOn(reader, "open");
+    try {
+      await expect(
+        readJavaScriptArtifactFiles(reader, snapshot),
+      ).rejects.toMatchObject({ reason: "integrity" });
+      expect(opened).not.toHaveBeenCalled();
+    } finally {
+      await reader.close();
+    }
+  });
+});
 
 describe("JavaScript artifact ingestion content identities", () => {
   it.each([
